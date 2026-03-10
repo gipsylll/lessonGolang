@@ -1,0 +1,108 @@
+# golangci-lint v2.x
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: none
+
+  enable:
+    # ── Корректность ──────────────────────────────────────────────────────────
+    - govet          # подозрительные конструкции (printf-форматы, shadowing и т.п.)
+    - staticcheck    # глубокий статический анализ
+    - errcheck       # непроверенные ошибки
+    - unused         # неиспользуемый код
+
+    # ── Стиль / читаемость ────────────────────────────────────────────────────
+    - revive         # замена golint
+    - gocritic       # сборник best-practice проверок
+    - gocognit       # когнитивная сложность функций
+    - cyclop         # цикломатическая сложность
+    - funlen         # длина функций
+    - nestif         # глубина вложенности if
+    - goconst        # повторяющиеся строки → константы
+    - whitespace     # лишние пустые строки
+    - nolintlint     # правильное использование //nolint директив
+
+    # ── Безопасность ──────────────────────────────────────────────────────────
+    - gosec          # уязвимости: SQL injection, hardcoded secrets и т.п.
+
+  settings:
+    revive:
+      severity: warning
+      rules:
+        - name: indent-error-flow
+        - name: error-naming
+        - name: var-naming
+        - name: blank-imports
+        - name: unnecessary-stmt
+        - name: unreachable-code
+        - name: early-return
+        # exported-комментарии не требуем в internal-пакетах
+        - name: exported
+          disabled: true
+
+    gocognit:
+      min-complexity: 20
+
+    cyclop:
+      max-complexity: 16
+
+    funlen:
+      lines: 100
+      statements: 60
+
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+
+    gosec:
+      excludes:
+        - G115  # integer overflow — много ложных срабатываний
+        - G114  # http.ListenAndServe без таймаута — исправим при добавлении Server struct
+
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+      disabled-checks:
+        - paramTypeCombine
+
+  exclusions:
+    rules:
+      # Тесты не штрафуем за длинные функции и сложность
+      - path: _test\.go
+        linters:
+          - funlen
+          - gocognit
+          - cyclop
+          - gosec
+
+    paths:
+      - vendor
+      - dist
+      - tmp
+      - docs
+
+formatters:
+  enable:
+    - gofmt      # стандартный форматтер
+    - goimports  # сортировка импортов: стандартные → внешние → свои
+
+  settings:
+    goimports:
+      local-prefixes:
+        - sushkov  # свои пакеты идут отдельной группой
+
+  exclusions:
+    paths:
+      - vendor
+      - dist
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  uniq-by-line: true
