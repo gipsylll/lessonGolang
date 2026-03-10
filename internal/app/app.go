@@ -8,13 +8,13 @@ import (
 	"syscall"
 	"time"
 
-	"sushkov/internal/adapter/memory"
+	"sushkov/internal/adapter/postgres"
 	"sushkov/internal/config"
-	"sushkov/internal/domain"
 	"sushkov/internal/handlers"
 	"sushkov/internal/infrastructure"
 	"sushkov/internal/logger"
 	"sushkov/internal/usecase"
+	"sushkov/migrations"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
@@ -58,14 +58,15 @@ func New(cfg *config.Config) (*App, error) {
 		return nil, err
 	}
 
-	// 3. TODO: Миграции
-	// if err := infrastructure.RunMigrations(db); err != nil { ... }
+	// 3. Миграции
+	if err := infrastructure.RunMigrations(db, migrations.FS); err != nil {
+		db.Close()
+		rdb.Close()
+		return nil, err
+	}
 
 	// 4. DI: repo → usecase → handler
-	userRepo := memory.NewUserRepo([]domain.User{ // TODO: заменить на postgres.NewUserRepo(db)
-		{ID: 1, Name: "John Doe", Email: "john.doe@example.com"},
-		{ID: 2, Name: "Jane Doe", Email: "jane.doe@example.com"},
-	})
+	userRepo := postgres.NewUserRepo(db)
 	userUsecase := usecase.NewUserUsecase(userRepo)
 	userHandler := handlers.NewUserHandler(userUsecase)
 

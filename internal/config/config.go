@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 )
 
 type Config struct {
@@ -23,6 +24,8 @@ type DBConfig struct {
 	User     string
 	Password string
 	Name     string
+	MaxConns int32
+	MinConns int32
 }
 
 // DSN возвращает строку подключения для pgx.
@@ -63,6 +66,8 @@ func MustLoad() *Config {
 			User:     mustGetEnv("DB_USER"),
 			Password: mustGetEnv("DB_PASSWORD"),
 			Name:     mustGetEnv("DB_NAME"),
+			MaxConns: getEnvInt32("DB_MAX_CONNS", 30),
+			MinConns: getEnvInt32("DB_MIN_CONNS", 5),
 		},
 		Redis: RedisConfig{
 			Host:     getEnv("REDIS_HOST", "localhost"),
@@ -89,4 +94,13 @@ func mustGetEnv(key string) string {
 		panic(fmt.Sprintf("required environment variable %q is not set", key))
 	}
 	return v
+}
+
+func getEnvInt32(key string, fallback int32) int32 {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 32); err == nil {
+			return int32(n)
+		}
+	}
+	return fallback
 }

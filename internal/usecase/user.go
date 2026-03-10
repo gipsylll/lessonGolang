@@ -2,24 +2,35 @@ package usecase
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"strings"
 
 	"sushkov/internal/domain"
 )
 
-// UserUsecase — реализация domain.UserUsecase.
-type UserUsecase struct {
-	repo domain.UserRepository
+type UserRepository interface {
+	GetAll(ctx context.Context) ([]domain.User, error)
+	List(ctx context.Context, input domain.ListUsersInput) (domain.UserPage, error)
+	GetByID(ctx context.Context, id int) (domain.User, error)
+	Create(ctx context.Context, input domain.CreateUserInput) (domain.User, error)
+	Update(ctx context.Context, id, version int, input domain.UpdateUserInput) (domain.User, error)
+	Patch(ctx context.Context, id, version int, input domain.PatchUserInput) (domain.User, error)
 }
 
-func NewUserUsecase(repo domain.UserRepository) *UserUsecase {
+type UserUsecase struct {
+	repo UserRepository
+}
+
+func NewUserUsecase(repo UserRepository) *UserUsecase {
 	return &UserUsecase{repo: repo}
 }
 
 func (uc *UserUsecase) GetAll(ctx context.Context) ([]domain.User, error) {
 	return uc.repo.GetAll(ctx)
+}
+
+func (uc *UserUsecase) List(ctx context.Context, input domain.ListUsersInput) (domain.UserPage, error) {
+	return uc.repo.List(ctx, input)
 }
 
 func (uc *UserUsecase) GetByID(ctx context.Context, id int) (domain.User, error) {
@@ -55,7 +66,7 @@ func parseIfMatch(ifMatch string) (int, error) {
 	s = strings.TrimPrefix(s, "v")
 	version, err := strconv.Atoi(s)
 	if err != nil {
-		return 0, fmt.Errorf("%w: invalid If-Match format", domain.ErrPreconditionFailed)
+		return 0, domain.ErrInvalidETag
 	}
 	return version, nil
 }

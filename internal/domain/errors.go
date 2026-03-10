@@ -4,6 +4,9 @@ import "errors"
 
 var (
 	ErrNotFound             = errors.New("user not found")
-	ErrPreconditionRequired = errors.New("If-Match header is required; fetch the resource first to get its ETag")
-	ErrPreconditionFailed   = errors.New("resource was modified by another request; please re-fetch and retry")
+	ErrEmailTaken           = errors.New("email is already taken")
+	ErrPreconditionRequired = errors.New("version token is required for this operation")
+	ErrPreconditionFailed   = errors.New("resource version mismatch; re-fetch and retry")
+	ErrInvalidETag          = errors.New("invalid version token format")
+	ErrInvalidCursor        = errors.New("invalid pagination cursor")
 )

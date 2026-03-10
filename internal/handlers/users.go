@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -11,6 +12,17 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog/log"
 )
+
+// UserUsecase — контракт бизнес-логики, определён здесь потому что handler его потребляет.
+// Реализуется в usecase/ без импорта этого пакета (structural typing).
+type UserUsecase interface {
+	GetAll(ctx context.Context) ([]domain.User, error)
+	List(ctx context.Context, input domain.ListUsersInput) (domain.UserPage, error)
+	GetByID(ctx context.Context, id int) (domain.User, error)
+	Create(ctx context.Context, input domain.CreateUserInput) (domain.User, error)
+	Update(ctx context.Context, id int, ifMatch string, input domain.UpdateUserInput) (domain.User, error)
+	Patch(ctx context.Context, id int, ifMatch string, input domain.PatchUserInput) (domain.User, error)
+}
 
 var validate = validator.New()
 
@@ -31,10 +43,10 @@ type patchUserRequest struct {
 }
 
 type UserHandler struct {
-	uc domain.UserUsecase
+	uc UserUsecase
 }
 
-func NewUserHandler(uc domain.UserUsecase) *UserHandler {
+func NewUserHandler(uc UserUsecase) *UserHandler {
 	return &UserHandler{uc: uc}
 }
 
@@ -47,19 +59,29 @@ func (h *UserHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /users/{id}", h.PatchUser)
 }
 
-// GET /users
+// GET /users?page_size=15&cursor=...
 func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	logger := log.Ctx(r.Context()).With().Str("handler", "GetUsers").Logger()
 
-	users, err := h.uc.GetAll(r.Context())
+	pageSize, _ := strconv.Atoi(r.URL.Query().Get("page_size"))
+	cursor := r.URL.Query().Get("cursor")
+
+	page, err := h.uc.List(r.Context(), domain.ListUsersInput{
+		PageSize: pageSize,
+		Cursor:   cursor,
+	})
 	if err != nil {
-		logger.Error().Err(err).Msg("get all users failed")
+		if errors.Is(err, domain.ErrInvalidCursor) {
+			writeError(w, r, http.StatusBadRequest, "invalid_cursor", err.Error())
+			return
+		}
+		logger.Error().Err(err).Msg("list users failed")
 		writeError(w, r, http.StatusInternalServerError, "internal_error", "failed to fetch users")
 		return
 	}
 
-	logger.Debug().Int("count", len(users)).Msg("fetching users list")
-	writeOk(w, http.StatusOK, users)
+	logger.Debug().Int("count", len(page.Items)).Msg("users list fetched")
+	writeOk(w, http.StatusOK, page)
 }
 
 // GET /users/{id}
@@ -212,10 +234,14 @@ func writeUCError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		writeError(w, r, http.StatusNotFound, "not_found", err.Error())
+	case errors.Is(err, domain.ErrEmailTaken):
+		writeError(w, r, http.StatusConflict, "email_taken", err.Error())
 	case errors.Is(err, domain.ErrPreconditionRequired):
-		writeError(w, r, http.StatusPreconditionRequired, "precondition_required", err.Error())
+		writeError(w, r, http.StatusPreconditionRequired, "precondition_required", "If-Match header is required; fetch the resource first to get its ETag")
 	case errors.Is(err, domain.ErrPreconditionFailed):
 		writeError(w, r, http.StatusPreconditionFailed, "precondition_failed", err.Error())
+	case errors.Is(err, domain.ErrInvalidETag):
+		writeError(w, r, http.StatusBadRequest, "invalid_etag", err.Error())
 	default:
 		writeError(w, r, http.StatusInternalServerError, "internal_error", "unexpected error occurred")
 	}

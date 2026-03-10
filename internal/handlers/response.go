@@ -1,16 +1,26 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 
 	"sushkov/internal/logger"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog/log"
 )
+
+var bufPool = sync.Pool{
+	New: func() any {
+		b := new(bytes.Buffer)
+		b.Grow(512)
+		return b
+	},
+}
 
 type errorResponse struct {
 	Error errorBody `json:"error"`
@@ -52,8 +62,14 @@ func writeError(w http.ResponseWriter, r *http.Request, status int, code, messag
 func writeValidationError(w http.ResponseWriter, r *http.Request, err error) {
 	requestID := logger.RequestIDFromContext(r.Context())
 
+	errs, ok := err.(validator.ValidationErrors)
+	if !ok {
+		writeError(w, r, http.StatusUnprocessableEntity, "validation_error", "request body is invalid")
+		return
+	}
+
 	var fields []fieldError
-	for _, e := range err.(validator.ValidationErrors) {
+	for _, e := range errs {
 		fields = append(fields, fieldError{
 			Field:   strings.ToLower(e.Field()),
 			Message: validationMessage(e),
@@ -115,21 +131,24 @@ func validationMessage(e validator.FieldError) string {
 	}
 }
 
-// etagFor формирует ETag по версии: "v1", "v2", ...
 func etagFor(version int) string {
 	return fmt.Sprintf(`"v%d"`, version)
 }
 
-func writeOk(w http.ResponseWriter, status int, data interface{}) {
+func writeOk(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	encode(w, data)
 }
 
-// encode пишет JSON в ответ и логирует если что-то пошло не так.
-// После отправки заголовков мы не можем изменить статус, поэтому только логируем.
-func encode(w http.ResponseWriter, v interface{}) {
-	if err := json.NewEncoder(w).Encode(v); err != nil {
+func encode(w http.ResponseWriter, v any) {
+	buf := bufPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	defer bufPool.Put(buf)
+
+	if err := json.NewEncoder(buf).Encode(v); err != nil {
 		log.Error().Err(err).Msg("failed to encode response")
+		return
 	}
+	_, _ = w.Write(buf.Bytes())
 }

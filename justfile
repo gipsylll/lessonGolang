@@ -42,9 +42,31 @@ release-all version:
 
 # ── Разработка ───────────────────────────────────────────────────────────────
 
+# Запуск без hot-reload (загружает .env, требует запущенной инфры: just infra)
+run:
+    #!/usr/bin/env sh
+    set -a && . ./.env && set +a
+    go run {{main_pkg}}
+
 # Hot-reload (требует: go install github.com/air-verse/air@latest)
 dev:
+    #!/usr/bin/env sh
+    set -a && . ./.env && set +a
     air --build.cmd "go build -o {{binary}} {{main_pkg}}" --build.bin "./{{binary}}"
+
+# Применить миграции вручную (требует запущенной инфры: just infra)
+migrate:
+    #!/usr/bin/env sh
+    set -a && . ./.env && set +a
+    GOOSE_DRIVER=postgres GOOSE_DBSTRING="postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}?sslmode=disable" \
+    goose -dir migrations up
+
+# Откатить последнюю миграцию
+migrate-down:
+    #!/usr/bin/env sh
+    set -a && . ./.env && set +a
+    GOOSE_DRIVER=postgres GOOSE_DBSTRING="postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}?sslmode=disable" \
+    goose -dir migrations down
 
 # Только postgres + redis для локальной разработки
 infra:
