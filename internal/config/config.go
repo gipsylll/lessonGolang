@@ -14,7 +14,7 @@ type Config struct {
 }
 
 type AppConfig struct {
-	Env  string // development | production
+	Env  string
 	Port string
 }
 

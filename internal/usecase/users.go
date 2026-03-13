@@ -2,14 +2,16 @@ package usecase
 
 import (
 	"context"
-	"errors"
-	"net/mail"
 	"strconv"
 	"strings"
 
 	"sushkov/internal/domain"
 	"sushkov/internal/interfaces"
+
+	"github.com/go-playground/validator/v10"
 )
+
+var validate = validator.New()
 
 type UserUsecase struct {
 	repo interfaces.UserRepository
@@ -32,14 +34,14 @@ func (uc *UserUsecase) GetByID(ctx context.Context, id int) (domain.User, error)
 }
 
 func (uc *UserUsecase) Create(ctx context.Context, input interfaces.CreateUserInput) (domain.User, error) {
-	if err := validateUserFields(input.Name, input.Email); err != nil {
+	if err := validateStruct(input); err != nil {
 		return domain.User{}, err
 	}
 	return uc.repo.Create(ctx, input)
 }
 
 func (uc *UserUsecase) Update(ctx context.Context, id int, ifMatch string, input interfaces.UpdateUserInput) (domain.User, error) {
-	if err := validateUserFields(input.Name, input.Email); err != nil {
+	if err := validateStruct(input); err != nil {
 		return domain.User{}, err
 	}
 	version, err := parseIfMatch(ifMatch)
@@ -53,19 +55,8 @@ func (uc *UserUsecase) Patch(ctx context.Context, id int, ifMatch string, input 
 	if input.Name == nil && input.Email == nil {
 		return domain.User{}, domain.ErrNoFieldsToUpdate
 	}
-	var fieldErrs []domain.FieldError
-	if input.Name != nil {
-		if err := validateName(*input.Name); err != nil {
-			fieldErrs = append(fieldErrs, domain.FieldError{Field: "name", Message: err.Error()})
-		}
-	}
-	if input.Email != nil {
-		if err := validateEmail(*input.Email); err != nil {
-			fieldErrs = append(fieldErrs, domain.FieldError{Field: "email", Message: err.Error()})
-		}
-	}
-	if len(fieldErrs) > 0 {
-		return domain.User{}, &domain.ValidationError{Fields: fieldErrs}
+	if err := validateStruct(input); err != nil {
+		return domain.User{}, err
 	}
 	version, err := parseIfMatch(ifMatch)
 	if err != nil {
@@ -74,36 +65,40 @@ func (uc *UserUsecase) Patch(ctx context.Context, id int, ifMatch string, input 
 	return uc.repo.Patch(ctx, id, version, input)
 }
 
-func validateUserFields(name, email string) error {
-	var fieldErrs []domain.FieldError
-	if err := validateName(name); err != nil {
-		fieldErrs = append(fieldErrs, domain.FieldError{Field: "name", Message: err.Error()})
+func validateStruct(s any) error {
+	err := validate.Struct(s)
+	if err == nil {
+		return nil
 	}
-	if err := validateEmail(email); err != nil {
-		fieldErrs = append(fieldErrs, domain.FieldError{Field: "email", Message: err.Error()})
+	errs, ok := err.(validator.ValidationErrors)
+	if !ok {
+		return &domain.ValidationError{Fields: []domain.FieldError{{Field: "", Message: err.Error()}}}
 	}
-	if len(fieldErrs) > 0 {
-		return &domain.ValidationError{Fields: fieldErrs}
+	fields := make([]domain.FieldError, len(errs))
+	for i, e := range errs {
+		fields[i] = domain.FieldError{
+			Field:   strings.ToLower(e.Field()),
+			Message: validationMessage(e),
+		}
 	}
-	return nil
+	return &domain.ValidationError{Fields: fields}
 }
 
-func validateName(name string) error {
-	l := len(name)
-	if l < 2 {
-		return errors.New("must be at least 2 characters")
+func validationMessage(e validator.FieldError) string {
+	switch e.Tag() {
+	case "required":
+		return "field is required"
+	case "min":
+		return "value is too short (min " + e.Param() + ")"
+	case "max":
+		return "value is too long (max " + e.Param() + ")"
+	case "email":
+		return "must be a valid email"
+	case "omitempty":
+		return "invalid value"
+	default:
+		return "invalid value"
 	}
-	if l > 100 {
-		return errors.New("must be at most 100 characters")
-	}
-	return nil
-}
-
-func validateEmail(email string) error {
-	if _, err := mail.ParseAddress(email); err != nil {
-		return errors.New("must be a valid email address")
-	}
-	return nil
 }
 
 func parseIfMatch(ifMatch string) (int, error) {

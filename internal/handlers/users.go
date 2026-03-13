@@ -90,18 +90,13 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
 		return
 	}
-	if err := validate.Struct(req); err != nil {
-		writeValidationError(w, r, err)
-		return
-	}
 
 	user, err := h.uc.Create(r.Context(), interfaces.CreateUserInput{
 		Name:  req.Name,
 		Email: req.Email,
 	})
 	if err != nil {
-		logger.Error().Err(err).Msg("create user failed")
-		writeError(w, r, http.StatusInternalServerError, "internal_error", "failed to create user")
+		writeUCError(w, r, err)
 		return
 	}
 
@@ -122,10 +117,6 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	var req updateUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON")
-		return
-	}
-	if err := validate.Struct(req); err != nil {
-		writeValidationError(w, r, err)
 		return
 	}
 
@@ -158,22 +149,6 @@ func (h *UserHandler) PatchUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var fieldErrs []fieldError
-	if req.Name != nil {
-		if err := validateLen("name", *req.Name, 2, 100); err != nil {
-			fieldErrs = append(fieldErrs, fieldError{Field: "name", Message: err.Error()})
-		}
-	}
-	if req.Email != nil {
-		if err := validateEmail(*req.Email); err != nil {
-			fieldErrs = append(fieldErrs, fieldError{Field: "email", Message: err.Error()})
-		}
-	}
-	if len(fieldErrs) > 0 {
-		writeFieldErrors(w, r, fieldErrs)
-		return
-	}
-
 	user, err := h.uc.Patch(r.Context(), id, r.Header.Get("If-Match"), interfaces.PatchUserInput{
 		Name:  req.Name,
 		Email: req.Email,
@@ -197,6 +172,15 @@ func pathID(r *http.Request) (int, error) {
 }
 
 func writeUCError(w http.ResponseWriter, r *http.Request, err error) {
+	var validationErr *domain.ValidationError
+	if errors.As(err, &validationErr) {
+		fields := make([]fieldError, len(validationErr.Fields))
+		for i, f := range validationErr.Fields {
+			fields[i] = fieldError{Field: f.Field, Message: f.Message}
+		}
+		writeFieldErrors(w, r, fields)
+		return
+	}
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		writeError(w, r, http.StatusNotFound, "not_found", err.Error())

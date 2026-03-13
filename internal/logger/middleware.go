@@ -9,18 +9,15 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// contextKey — приватный тип для ключей контекста, исключает коллизии с другими пакетами.
 type contextKey string
 
 const requestIDKey contextKey = "request_id"
 
-// RequestIDFromContext возвращает request_id из контекста запроса.
 func RequestIDFromContext(ctx context.Context) string {
 	id, _ := ctx.Value(requestIDKey).(string)
 	return id
 }
 
-// ResponseWriter — обёртка для захвата статуса ответа и размера тела.
 type ResponseWriter struct {
 	http.ResponseWriter
 	statusCode   int
@@ -41,7 +38,6 @@ func (rw *ResponseWriter) Write(b []byte) (int, error) {
 	return n, err
 }
 
-// LoggingMiddleware — middleware для логирования HTTP-запросов.
 func LoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()

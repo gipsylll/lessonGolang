@@ -7,18 +7,18 @@ import (
 )
 
 type CreateUserInput struct {
-	Name  string
-	Email string
+	Name  string `validate:"required,min=2,max=100"`
+	Email string `validate:"required,email"`
 }
 
 type UpdateUserInput struct {
-	Name  string
-	Email string
+	Name  string `validate:"required,min=2,max=100"`
+	Email string `validate:"required,email"`
 }
 
 type PatchUserInput struct {
-	Name  *string
-	Email *string
+	Name  *string `validate:"omitempty,min=2,max=100"`
+	Email *string `validate:"omitempty,email"`
 }
 
 type ListUsersInput struct {
