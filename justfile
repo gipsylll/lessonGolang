@@ -107,6 +107,11 @@ test-cover:
     go test ./... -coverprofile=coverage.out
     go tool cover -html=coverage.out
 
+# ── Wire ─────────────────────────────────────────────────────────────────────
+
+wire:
+    go run -mod=mod github.com/google/wire/cmd/wire ./internal/app/
+
 # ── Зависимости ──────────────────────────────────────────────────────────────
 
 deps:

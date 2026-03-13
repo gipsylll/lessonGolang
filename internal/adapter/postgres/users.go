@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"sushkov/internal/domain"
+	"sushkov/internal/interfaces"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -30,7 +31,7 @@ func (r *UserRepo) withTx(ctx context.Context, fn func(pgx.Tx) error) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := fn(tx); err != nil {
 		return err
@@ -38,7 +39,7 @@ func (r *UserRepo) withTx(ctx context.Context, fn func(pgx.Tx) error) error {
 	return tx.Commit(ctx)
 }
 
-func (r *UserRepo) List(ctx context.Context, input domain.ListUsersInput) (domain.UserPage, error) {
+func (r *UserRepo) List(ctx context.Context, input interfaces.ListUsersInput) (interfaces.UserPage, error) {
 	pageSize := input.PageSize
 	if pageSize <= 0 || pageSize > 100 {
 		pageSize = 15
@@ -58,7 +59,7 @@ func (r *UserRepo) List(ctx context.Context, input domain.ListUsersInput) (domai
 	} else {
 		cursorTime, cursorID, parseErr := parseCursor(input.Cursor)
 		if parseErr != nil {
-			return domain.UserPage{}, domain.ErrInvalidCursor
+			return interfaces.UserPage{}, domain.ErrInvalidCursor
 		}
 		rows, err = r.db.Query(ctx,
 			`SELECT id, name, email, version, created_at FROM users
@@ -68,7 +69,7 @@ func (r *UserRepo) List(ctx context.Context, input domain.ListUsersInput) (domai
 		)
 	}
 	if err != nil {
-		return domain.UserPage{}, err
+		return interfaces.UserPage{}, err
 	}
 	defer rows.Close()
 
@@ -78,13 +79,13 @@ func (r *UserRepo) List(ctx context.Context, input domain.ListUsersInput) (domai
 		var u domain.User
 		var ca time.Time
 		if err := rows.Scan(&u.ID, &u.Name, &u.Email, &u.Version, &ca); err != nil {
-			return domain.UserPage{}, err
+			return interfaces.UserPage{}, err
 		}
 		items = append(items, u)
 		createdAts = append(createdAts, ca)
 	}
 	if err := rows.Err(); err != nil {
-		return domain.UserPage{}, err
+		return interfaces.UserPage{}, err
 	}
 
 	var nextCursor string
@@ -94,7 +95,7 @@ func (r *UserRepo) List(ctx context.Context, input domain.ListUsersInput) (domai
 		nextCursor = buildCursor(createdAts[pageSize-1], last.ID)
 	}
 
-	return domain.UserPage{Items: items, NextCursor: nextCursor}, nil
+	return interfaces.UserPage{Items: items, NextCursor: nextCursor}, nil
 }
 
 func parseCursor(cursor string) (time.Time, int, error) {
@@ -149,7 +150,7 @@ func (r *UserRepo) GetByID(ctx context.Context, id int) (domain.User, error) {
 	return u, err
 }
 
-func (r *UserRepo) Create(ctx context.Context, input domain.CreateUserInput) (domain.User, error) {
+func (r *UserRepo) Create(ctx context.Context, input interfaces.CreateUserInput) (domain.User, error) {
 	var u domain.User
 	err := r.withTx(ctx, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx,
@@ -168,7 +169,7 @@ func (r *UserRepo) Create(ctx context.Context, input domain.CreateUserInput) (do
 	return u, err
 }
 
-func (r *UserRepo) Update(ctx context.Context, id, version int, input domain.UpdateUserInput) (domain.User, error) {
+func (r *UserRepo) Update(ctx context.Context, id, version int, input interfaces.UpdateUserInput) (domain.User, error) {
 	var updated domain.User
 	err := r.withTx(ctx, func(tx pgx.Tx) error {
 		var old domain.User
@@ -205,7 +206,7 @@ func (r *UserRepo) Update(ctx context.Context, id, version int, input domain.Upd
 	return updated, err
 }
 
-func (r *UserRepo) Patch(ctx context.Context, id, version int, input domain.PatchUserInput) (domain.User, error) {
+func (r *UserRepo) Patch(ctx context.Context, id, version int, input interfaces.PatchUserInput) (domain.User, error) {
 	var updated domain.User
 	err := r.withTx(ctx, func(tx pgx.Tx) error {
 		var old domain.User
@@ -245,7 +246,7 @@ func (r *UserRepo) Patch(ctx context.Context, id, version int, input domain.Patc
 	return updated, err
 }
 
-func insertAuditLog(ctx context.Context, tx pgx.Tx, entityID int, action string, old *domain.User, new domain.User) error {
+func insertAuditLog(ctx context.Context, tx pgx.Tx, entityID int, action string, old *domain.User, updated domain.User) error {
 	var oldJSON []byte
 	if old != nil {
 		var err error
@@ -254,7 +255,7 @@ func insertAuditLog(ctx context.Context, tx pgx.Tx, entityID int, action string,
 			return err
 		}
 	}
-	newJSON, err := json.Marshal(new)
+	newJSON, err := json.Marshal(updated)
 	if err != nil {
 		return err
 	}

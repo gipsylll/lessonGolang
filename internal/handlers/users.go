@@ -1,28 +1,17 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
 
 	"sushkov/internal/domain"
+	"sushkov/internal/interfaces"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog/log"
 )
-
-// UserUsecase — контракт бизнес-логики, определён здесь потому что handler его потребляет.
-// Реализуется в usecase/ без импорта этого пакета (structural typing).
-type UserUsecase interface {
-	GetAll(ctx context.Context) ([]domain.User, error)
-	List(ctx context.Context, input domain.ListUsersInput) (domain.UserPage, error)
-	GetByID(ctx context.Context, id int) (domain.User, error)
-	Create(ctx context.Context, input domain.CreateUserInput) (domain.User, error)
-	Update(ctx context.Context, id int, ifMatch string, input domain.UpdateUserInput) (domain.User, error)
-	Patch(ctx context.Context, id int, ifMatch string, input domain.PatchUserInput) (domain.User, error)
-}
 
 var validate = validator.New()
 
@@ -36,21 +25,19 @@ type updateUserRequest struct {
 	Email string `json:"email" validate:"required,email"`
 }
 
-// patchUserRequest — поля-указатели, чтобы отличить "не передан" от "передан пустым"
 type patchUserRequest struct {
 	Name  *string `json:"name"`
 	Email *string `json:"email"`
 }
 
 type UserHandler struct {
-	uc UserUsecase
+	uc interfaces.UserUsecase
 }
 
-func NewUserHandler(uc UserUsecase) *UserHandler {
+func NewUserHandler(uc interfaces.UserUsecase) *UserHandler {
 	return &UserHandler{uc: uc}
 }
 
-// Register регистрирует все роуты хендлера в mux.
 func (h *UserHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /users", h.GetUsers)
 	mux.HandleFunc("POST /users", h.CreateUser)
@@ -59,24 +46,18 @@ func (h *UserHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /users/{id}", h.PatchUser)
 }
 
-// GET /users?page_size=15&cursor=...
 func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	logger := log.Ctx(r.Context()).With().Str("handler", "GetUsers").Logger()
 
 	pageSize, _ := strconv.Atoi(r.URL.Query().Get("page_size"))
 	cursor := r.URL.Query().Get("cursor")
 
-	page, err := h.uc.List(r.Context(), domain.ListUsersInput{
+	page, err := h.uc.List(r.Context(), interfaces.ListUsersInput{
 		PageSize: pageSize,
 		Cursor:   cursor,
 	})
 	if err != nil {
-		if errors.Is(err, domain.ErrInvalidCursor) {
-			writeError(w, r, http.StatusBadRequest, "invalid_cursor", err.Error())
-			return
-		}
-		logger.Error().Err(err).Msg("list users failed")
-		writeError(w, r, http.StatusInternalServerError, "internal_error", "failed to fetch users")
+		writeUCError(w, r, err)
 		return
 	}
 
@@ -84,7 +65,6 @@ func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	writeOk(w, http.StatusOK, page)
 }
 
-// GET /users/{id}
 func (h *UserHandler) GetUserByID(w http.ResponseWriter, r *http.Request) {
 	logger := log.Ctx(r.Context()).With().Str("handler", "GetUserByID").Logger()
 
@@ -105,7 +85,6 @@ func (h *UserHandler) GetUserByID(w http.ResponseWriter, r *http.Request) {
 	writeOk(w, http.StatusOK, user)
 }
 
-// POST /users
 func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	logger := log.Ctx(r.Context()).With().Str("handler", "CreateUser").Logger()
 
@@ -119,7 +98,7 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.uc.Create(r.Context(), domain.CreateUserInput{
+	user, err := h.uc.Create(r.Context(), interfaces.CreateUserInput{
 		Name:  req.Name,
 		Email: req.Email,
 	})
@@ -134,7 +113,6 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	writeOk(w, http.StatusCreated, user)
 }
 
-// PUT /users/{id}
 func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	logger := log.Ctx(r.Context()).With().Str("handler", "UpdateUser").Logger()
 
@@ -154,7 +132,7 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.uc.Update(r.Context(), id, r.Header.Get("If-Match"), domain.UpdateUserInput{
+	user, err := h.uc.Update(r.Context(), id, r.Header.Get("If-Match"), interfaces.UpdateUserInput{
 		Name:  req.Name,
 		Email: req.Email,
 	})
@@ -168,8 +146,6 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	writeOk(w, http.StatusOK, user)
 }
 
-// PATCH /users/{id} — частичное обновление.
-// Использует ручные валидационные хелперы (validateLen, validateEmail) из validate.go.
 func (h *UserHandler) PatchUser(w http.ResponseWriter, r *http.Request) {
 	logger := log.Ctx(r.Context()).With().Str("handler", "PatchUser").Logger()
 
@@ -206,7 +182,7 @@ func (h *UserHandler) PatchUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.uc.Patch(r.Context(), id, r.Header.Get("If-Match"), domain.PatchUserInput{
+	user, err := h.uc.Patch(r.Context(), id, r.Header.Get("If-Match"), interfaces.PatchUserInput{
 		Name:  req.Name,
 		Email: req.Email,
 	})
@@ -220,7 +196,6 @@ func (h *UserHandler) PatchUser(w http.ResponseWriter, r *http.Request) {
 	writeOk(w, http.StatusOK, user)
 }
 
-// pathID извлекает {id} из пути и проверяет что он положительный.
 func pathID(r *http.Request) (int, error) {
 	id, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil || id < 1 {
@@ -229,7 +204,6 @@ func pathID(r *http.Request) (int, error) {
 	return id, nil
 }
 
-// writeUCError транслирует ошибки usecase в HTTP ответы.
 func writeUCError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
@@ -242,6 +216,8 @@ func writeUCError(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, r, http.StatusPreconditionFailed, "precondition_failed", err.Error())
 	case errors.Is(err, domain.ErrInvalidETag):
 		writeError(w, r, http.StatusBadRequest, "invalid_etag", err.Error())
+	case errors.Is(err, domain.ErrInvalidCursor):
+		writeError(w, r, http.StatusBadRequest, "invalid_cursor", err.Error())
 	default:
 		writeError(w, r, http.StatusInternalServerError, "internal_error", "unexpected error occurred")
 	}

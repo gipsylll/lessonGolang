@@ -28,7 +28,6 @@ type DBConfig struct {
 	MinConns int32
 }
 
-// DSN возвращает строку подключения для pgx.
 func (c *DBConfig) DSN() string {
 	return fmt.Sprintf(
 		"postgres://%s:%s@%s:%s/%s?sslmode=disable",
@@ -42,7 +41,6 @@ type RedisConfig struct {
 	Password string
 }
 
-// Addr возвращает host:port для redis-клиента.
 func (c *RedisConfig) Addr() string {
 	return fmt.Sprintf("%s:%s", c.Host, c.Port)
 }
@@ -52,8 +50,6 @@ type LoggerConfig struct {
 	Pretty bool
 }
 
-// MustLoad читает конфиг из переменных окружения.
-// Паникует если обязательные переменные не заданы.
 func MustLoad() *Config {
 	return &Config{
 		App: AppConfig{

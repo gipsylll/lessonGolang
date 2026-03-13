@@ -8,12 +8,9 @@ import (
 	"syscall"
 	"time"
 
-	"sushkov/internal/adapter/postgres"
 	"sushkov/internal/config"
-	"sushkov/internal/handlers"
 	"sushkov/internal/infrastructure"
 	"sushkov/internal/logger"
-	"sushkov/internal/usecase"
 	"sushkov/migrations"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -28,16 +25,13 @@ const (
 	_idleTimeout     = 60 * time.Second
 )
 
-// App — центральная структура приложения, владеет всеми зависимостями.
 type App struct {
 	db     *pgxpool.Pool
 	redis  *redis.Client
 	server *http.Server
 }
 
-// New инициализирует зависимости через DI и возвращает готовое приложение.
 func New(cfg *config.Config) (*App, error) {
-	// 1. Логгер
 	if err := logger.Init(logger.Config{
 		Level:   cfg.Logger.Level,
 		Pretty:  cfg.Logger.Pretty,
@@ -46,7 +40,6 @@ func New(cfg *config.Config) (*App, error) {
 		return nil, err
 	}
 
-	// 2. Инфраструктура
 	db, err := infrastructure.NewPostgresPool(&cfg.DB)
 	if err != nil {
 		return nil, err
@@ -58,23 +51,15 @@ func New(cfg *config.Config) (*App, error) {
 		return nil, err
 	}
 
-	// 3. Миграции
 	if err := infrastructure.RunMigrations(db, migrations.FS); err != nil {
 		db.Close()
-		rdb.Close()
+		_ = rdb.Close()
 		return nil, err
 	}
 
-	// 4. DI: repo → usecase → handler
-	userRepo := postgres.NewUserRepo(db)
-	userUsecase := usecase.NewUserUsecase(userRepo)
-	userHandler := handlers.NewUserHandler(userUsecase)
-
-	// 5. Роутер — каждый хендлер сам регистрирует свои роуты
 	mux := http.NewServeMux()
-	userHandler.Register(mux)
+	initUserHandler(db).Register(mux)
 
-	// 6. HTTP-сервер с таймаутами
 	srv := &http.Server{
 		Addr:         ":" + cfg.App.Port,
 		Handler:      logger.LoggingMiddleware(mux),
@@ -86,7 +71,6 @@ func New(cfg *config.Config) (*App, error) {
 	return &App{db: db, redis: rdb, server: srv}, nil
 }
 
-// Run запускает сервер и блокируется до SIGINT/SIGTERM, затем graceful shutdown.
 func (a *App) Run() {
 	go func() {
 		log.Info().Str("addr", a.server.Addr).Msg("server starting")
