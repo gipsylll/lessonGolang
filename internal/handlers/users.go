@@ -9,20 +9,17 @@ import (
 	"sushkov/internal/domain"
 	"sushkov/internal/interfaces"
 
-	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog/log"
 )
 
-var validate = validator.New()
-
 type createUserRequest struct {
-	Name  string `json:"name"  validate:"required,min=2,max=100"`
-	Email string `json:"email" validate:"required,email"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
 }
 
 type updateUserRequest struct {
-	Name  string `json:"name"  validate:"required,min=2,max=100"`
-	Email string `json:"email" validate:"required,email"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
 }
 
 type patchUserRequest struct {
@@ -161,11 +158,6 @@ func (h *UserHandler) PatchUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Name == nil && req.Email == nil {
-		writeError(w, r, http.StatusBadRequest, "no_fields", "at least one field must be provided")
-		return
-	}
-
 	var fieldErrs []fieldError
 	if req.Name != nil {
 		if err := validateLen("name", *req.Name, 2, 100); err != nil {
@@ -218,6 +210,8 @@ func writeUCError(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, r, http.StatusBadRequest, "invalid_etag", err.Error())
 	case errors.Is(err, domain.ErrInvalidCursor):
 		writeError(w, r, http.StatusBadRequest, "invalid_cursor", err.Error())
+	case errors.Is(err, domain.ErrNoFieldsToUpdate):
+		writeError(w, r, http.StatusBadRequest, "no_fields", err.Error())
 	default:
 		writeError(w, r, http.StatusInternalServerError, "internal_error", "unexpected error occurred")
 	}
